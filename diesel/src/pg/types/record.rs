@@ -1,14 +1,15 @@
 use byteorder::*;
 use std::io::Write;
+use std::num::NonZeroU32;
 
-use deserialize::{self, FromSql, FromSqlRow, Queryable};
-use expression::{AppearsOnTable, AsExpression, Expression, SelectableExpression};
-use pg::Pg;
-use query_builder::{AstPass, QueryFragment};
-use result::QueryResult;
-use row::Row;
-use serialize::{self, IsNull, Output, ToSql, WriteTuple};
-use sql_types::{HasSqlType, Record};
+use crate::deserialize::{self, FromSql, FromSqlRow, Queryable};
+use crate::expression::{AppearsOnTable, AsExpression, Expression, SelectableExpression};
+use crate::pg::{Pg, PgValue};
+use crate::query_builder::{AstPass, QueryFragment};
+use crate::result::QueryResult;
+use crate::row::Row;
+use crate::serialize::{self, IsNull, Output, ToSql, WriteTuple};
+use crate::sql_types::{HasSqlType, Record};
 
 macro_rules! tuple_impls {
     ($(
@@ -24,8 +25,9 @@ macro_rules! tuple_impls {
             // but the only other option would be to use `mem::uninitialized`
             // and `ptr::write`.
             #[allow(clippy::eval_order_dependence)]
-            fn from_sql(bytes: Option<&[u8]>) -> deserialize::Result<Self> {
-                let mut bytes = not_none!(bytes);
+            fn from_sql(value: Option<PgValue<'_>>) -> deserialize::Result<Self> {
+                let value = not_none!(value);
+                let mut bytes = value.as_bytes();
                 let num_elements = bytes.read_i32::<NetworkEndian>()?;
 
                 if num_elements != $Tuple {
@@ -41,7 +43,7 @@ macro_rules! tuple_impls {
                     // ignores cases like text vs varchar where the
                     // representation is the same and we don't care which we
                     // got.
-                    let _oid = bytes.read_u32::<NetworkEndian>()?;
+                    let oid = NonZeroU32::new(bytes.read_u32::<NetworkEndian>()?).expect("Oid's aren't zero");
                     let num_bytes = bytes.read_i32::<NetworkEndian>()?;
 
                     if num_bytes == -1 {
@@ -49,7 +51,10 @@ macro_rules! tuple_impls {
                     } else {
                         let (elem_bytes, new_bytes) = bytes.split_at(num_bytes as usize);
                         bytes = new_bytes;
-                        $T::from_sql(Some(elem_bytes))?
+                        $T::from_sql(Some(PgValue::new(
+                            elem_bytes,
+                            oid,
+                        )))?
                     }
                 },)+);
 
@@ -168,10 +173,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dsl::sql;
-    use prelude::*;
-    use sql_types::*;
-    use test_helpers::*;
+    use crate::dsl::sql;
+    use crate::prelude::*;
+    use crate::sql_types::*;
+    use crate::test_helpers::*;
 
     #[test]
     fn record_deserializes_correctly() {
@@ -200,11 +205,11 @@ mod tests {
         let conn = pg_connection();
 
         let tup = sql::<Record<(Integer, Text)>>("(1, 'hi')");
-        let res = ::select(tup.eq((1, "hi"))).get_result(&conn);
+        let res = crate::select(tup.eq((1, "hi"))).get_result(&conn);
         assert_eq!(Ok(true), res);
 
         let tup = sql::<Record<(Record<(Integer, Text)>, Integer)>>("((2, 'bye'::text), 3)");
-        let res = ::select(tup.eq(((2, "bye"), 3))).get_result(&conn);
+        let res = crate::select(tup.eq(((2, "bye"), 3))).get_result(&conn);
         assert_eq!(Ok(true), res);
 
         let tup = sql::<
@@ -213,7 +218,7 @@ mod tests {
                 Nullable<Integer>,
             )>,
         >("((4, NULL::text), NULL::int4)");
-        let res = ::select(tup.is_not_distinct_from(((Some(4), None::<&str>), None::<i32>)))
+        let res = crate::select(tup.is_not_distinct_from(((Some(4), None::<&str>), None::<i32>)))
             .get_result(&conn);
         assert_eq!(Ok(true), res);
     }
@@ -236,11 +241,11 @@ mod tests {
 
         let conn = pg_connection();
 
-        ::sql_query("CREATE TYPE my_type AS (i int4, t text)")
+        crate::sql_query("CREATE TYPE my_type AS (i int4, t text)")
             .execute(&conn)
             .unwrap();
         let sql = sql::<Bool>("(1, 'hi')::my_type = ").bind::<MyType, _>(MyStruct(1, "hi"));
-        let res = ::select(sql).get_result(&conn);
+        let res = crate::select(sql).get_result(&conn);
         assert_eq!(Ok(true), res);
     }
 }

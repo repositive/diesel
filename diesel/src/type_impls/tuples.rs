@@ -1,18 +1,18 @@
 use std::error::Error;
 
-use associations::BelongsTo;
-use backend::Backend;
-use deserialize::{self, FromSqlRow, Queryable, QueryableByName};
-use expression::{
+use crate::associations::BelongsTo;
+use crate::backend::Backend;
+use crate::deserialize::{self, FromSqlRow, Queryable, QueryableByName};
+use crate::expression::{
     AppearsOnTable, AsExpression, AsExpressionList, Expression, NonAggregate, SelectableExpression,
 };
-use insertable::{CanInsertInSingleQuery, InsertValues, Insertable};
-use query_builder::*;
-use query_source::*;
-use result::QueryResult;
-use row::*;
-use sql_types::{HasSqlType, NotNull};
-use util::TupleAppend;
+use crate::insertable::{CanInsertInSingleQuery, InsertValues, Insertable};
+use crate::query_builder::*;
+use crate::query_source::*;
+use crate::result::QueryResult;
+use crate::row::*;
+use crate::sql_types::{HasSqlType, NotNull};
+use crate::util::TupleAppend;
 
 macro_rules! tuple_impls {
     ($(
@@ -44,7 +44,7 @@ macro_rules! tuple_impls {
             {
                 const FIELDS_NEEDED: usize = $($T::FIELDS_NEEDED +)+ 0;
 
-                fn build_from_row<RowT: Row<__DB>>(row: &mut RowT) -> Result<Self, Box<Error+Send+Sync>> {
+                fn build_from_row<RowT: Row<__DB>>(row: &mut RowT) -> Result<Self, Box<dyn Error + Send + Sync>> {
                     Ok(($($T::build_from_row(row)?,)+))
                 }
             }

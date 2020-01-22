@@ -1,5 +1,6 @@
+#![cfg(not(feature = "mysql"))]
+use crate::schema::{connection_without_transaction, DropTable};
 use diesel::*;
-use schema::{connection_without_transaction, DropTable};
 
 table! {
     auto_time {
@@ -13,8 +14,8 @@ table! {
 #[cfg(any(feature = "postgres", feature = "sqlite"))]
 fn managing_updated_at_for_table() {
     use self::auto_time::dsl::*;
+    use crate::schema_dsl::*;
     use chrono::NaiveDateTime;
-    use schema_dsl::*;
     use std::{thread, time::Duration};
 
     // transactions have frozen time, so we can't use them
@@ -72,4 +73,12 @@ fn managing_updated_at_for_table() {
         .unwrap();
     let new_time: NaiveDateTime = query.first(&connection).unwrap();
     assert!(old_time < new_time);
+}
+
+#[test]
+#[cfg(feature = "sqlite")]
+fn strips_sqlite_url_prefix() {
+    let mut path = std::env::temp_dir();
+    path.push("diesel_test_sqlite.db");
+    assert!(SqliteConnection::establish(&format!("sqlite://{}", path.display())).is_ok());
 }

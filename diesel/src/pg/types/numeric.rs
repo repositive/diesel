@@ -11,11 +11,11 @@ mod bigdecimal {
     use self::num_traits::{Signed, ToPrimitive, Zero};
     use std::io::prelude::*;
 
-    use deserialize::{self, FromSql};
-    use pg::data_types::PgNumeric;
-    use pg::Pg;
-    use serialize::{self, Output, ToSql};
-    use sql_types::Numeric;
+    use crate::deserialize::{self, FromSql};
+    use crate::pg::data_types::PgNumeric;
+    use crate::pg::{Pg, PgValue};
+    use crate::serialize::{self, Output, ToSql};
+    use crate::sql_types::Numeric;
 
     use std::convert::{TryFrom, TryInto};
     use std::error::Error;
@@ -39,7 +39,7 @@ mod bigdecimal {
     }
 
     impl<'a> TryFrom<&'a PgNumeric> for BigDecimal {
-        type Error = Box<Error + Send + Sync>;
+        type Error = Box<dyn Error + Send + Sync>;
 
         fn try_from(numeric: &'a PgNumeric) -> deserialize::Result<Self> {
             let (sign, weight, scale, digits) = match *numeric {
@@ -73,7 +73,7 @@ mod bigdecimal {
     }
 
     impl TryFrom<PgNumeric> for BigDecimal {
-        type Error = Box<Error + Send + Sync>;
+        type Error = Box<dyn Error + Send + Sync>;
 
         fn try_from(numeric: PgNumeric) -> deserialize::Result<Self> {
             (&numeric).try_into()
@@ -153,7 +153,7 @@ mod bigdecimal {
     }
 
     impl FromSql<Numeric, Pg> for BigDecimal {
-        fn from_sql(numeric: Option<&[u8]>) -> deserialize::Result<Self> {
+        fn from_sql(numeric: Option<PgValue<'_>>) -> deserialize::Result<Self> {
             PgNumeric::from_sql(numeric)?.try_into()
         }
     }

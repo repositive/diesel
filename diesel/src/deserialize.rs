@@ -3,12 +3,12 @@
 use std::error::Error;
 use std::result;
 
-use backend::{self, Backend};
-use row::{NamedRow, Row};
+use crate::backend::{self, Backend};
+use crate::row::{NamedRow, Row};
 
 /// A specialized result type representing the result of deserializing
 /// a value from the database.
-pub type Result<T> = result::Result<T, Box<Error + Send + Sync>>;
+pub type Result<T> = result::Result<T, Box<dyn Error + Send + Sync>>;
 
 /// Trait indicating that a record can be queried from the database.
 ///
@@ -388,8 +388,8 @@ pub trait FromSqlRow<A, DB: Backend>: Sized {
 //     }
 // }
 //
-// (this is mostly here so @sgrif has a better reference every time he thinks
-// he's somehow had a breakthrough on solving this problem):
+// (this is mostly here so @sgrif has a better reference every time they think
+// they've somehow had a breakthrough on solving this problem):
 //
 // - It conflicts with our impl for tuples, because `DB` is a bare type
 //   parameter, it could in theory be a local type for some other impl.

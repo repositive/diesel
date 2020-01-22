@@ -106,18 +106,19 @@ impl<'a, T: QueryId + ?Sized> QueryId for &'a T {
     const HAS_STATIC_QUERY_ID: bool = T::HAS_STATIC_QUERY_ID;
 }
 
-impl<DB> QueryId for QueryFragment<DB> {
+impl<DB> QueryId for dyn QueryFragment<DB> {
     type QueryId = ();
 
     const HAS_STATIC_QUERY_ID: bool = false;
 }
 
 #[cfg(test)]
+#[allow(unused_parens)] // FIXME: Remove this attribute once false positive is resolved.
 mod tests {
     use std::any::TypeId;
 
     use super::QueryId;
-    use prelude::*;
+    use crate::prelude::*;
 
     table! {
         users {

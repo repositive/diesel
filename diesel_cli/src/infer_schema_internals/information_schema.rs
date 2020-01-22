@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::error::Error;
 
 use diesel::backend::Backend;
@@ -106,8 +107,8 @@ mod information_schema {
         information_schema.referential_constraints (constraint_schema, constraint_name) {
             constraint_schema -> VarChar,
             constraint_name -> VarChar,
-            unique_constraint_schema -> VarChar,
-            unique_constraint_name -> VarChar,
+            unique_constraint_schema -> Nullable<VarChar>,
+            unique_constraint_name -> Nullable<VarChar>,
         }
     }
 
@@ -124,8 +125,8 @@ where
     use self::information_schema::columns::dsl::*;
 
     let schema_name = match table.schema {
-        Some(ref name) => name.clone(),
-        None => Conn::Backend::default_schema(conn)?,
+        Some(ref name) => Cow::Borrowed(name),
+        None => Cow::Owned(Conn::Backend::default_schema(conn)?),
     };
 
     let type_column = Conn::Backend::type_column();
@@ -151,8 +152,8 @@ where
         .filter(constraint_type.eq("PRIMARY KEY"));
 
     let schema_name = match table.schema {
-        Some(ref name) => name.clone(),
-        None => Conn::Backend::default_schema(conn)?,
+        Some(ref name) => Cow::Borrowed(name),
+        None => Cow::Owned(Conn::Backend::default_schema(conn)?),
     };
 
     key_column_usage
@@ -167,7 +168,7 @@ where
 pub fn load_table_names<Conn>(
     connection: &Conn,
     schema_name: Option<&str>,
-) -> Result<Vec<TableName>, Box<Error>>
+) -> Result<Vec<TableName>, Box<dyn Error>>
 where
     Conn: Connection,
     Conn::Backend: UsesInformationSchema,
@@ -176,22 +177,24 @@ where
     use self::information_schema::tables::dsl::*;
 
     let default_schema = Conn::Backend::default_schema(connection)?;
-    let schema_name = match schema_name {
-        Some(name) => name,
-        None => &default_schema,
-    };
+    let db_schema_name = schema_name.unwrap_or(&default_schema);
 
     let mut table_names = tables
-        .select((table_name, table_schema))
-        .filter(table_schema.eq(schema_name))
+        .select(table_name)
+        .filter(table_schema.eq(db_schema_name))
         .filter(table_name.not_like("\\_\\_%"))
         .filter(table_type.like("BASE TABLE"))
-        .order(table_name)
-        .load::<TableName>(connection)?;
-    for table in &mut table_names {
-        table.strip_schema_if_matches(&default_schema);
-    }
-    Ok(table_names)
+        .load::<String>(connection)?;
+    table_names.sort_unstable();
+    Ok(table_names
+        .into_iter()
+        .map(|name| TableName {
+            name,
+            schema: schema_name
+                .filter(|&schema| schema != default_schema)
+                .map(|schema| schema.to_owned()),
+        })
+        .collect())
 }
 
 #[allow(clippy::similar_names)]
@@ -210,10 +213,7 @@ where
     use self::information_schema::table_constraints as tc;
 
     let default_schema = Conn::Backend::default_schema(connection)?;
-    let schema_name = match schema_name {
-        Some(name) => name,
-        None => &default_schema,
-    };
+    let schema_name = schema_name.unwrap_or(&default_schema);
 
     let constraint_names = tc::table
         .filter(tc::constraint_type.eq("FOREIGN KEY"))
@@ -229,7 +229,7 @@ where
             rc::unique_constraint_schema,
             rc::unique_constraint_name,
         ))
-        .load::<(String, String, String, String)>(connection)?;
+        .load::<(String, String, Option<String>, Option<String>)>(connection)?;
 
     constraint_names
         .into_iter()
@@ -239,10 +239,10 @@ where
                     .filter(kcu::constraint_schema.eq(&foreign_key_schema))
                     .filter(kcu::constraint_name.eq(&foreign_key_name))
                     .select(((kcu::table_name, kcu::table_schema), kcu::column_name))
-                    .first::<(TableName, _)>(connection)?;
+                    .first::<(TableName, String)>(connection)?;
                 let (mut primary_key_table, primary_key_column) = kcu::table
-                    .filter(kcu::constraint_schema.eq(primary_key_schema))
-                    .filter(kcu::constraint_name.eq(primary_key_name))
+                    .filter(kcu::constraint_schema.nullable().eq(primary_key_schema))
+                    .filter(kcu::constraint_name.nullable().eq(primary_key_name))
                     .select(((kcu::table_name, kcu::table_schema), kcu::column_name))
                     .first::<(TableName, _)>(connection)?;
 
@@ -252,11 +252,16 @@ where
                 Ok(ForeignKeyConstraint {
                     child_table: foreign_key_table,
                     parent_table: primary_key_table,
-                    foreign_key: foreign_key_column,
+                    foreign_key: foreign_key_column.clone(),
+                    foreign_key_rust_name: foreign_key_column,
                     primary_key: primary_key_column,
                 })
             },
         )
+        .filter(|e| match e {
+            Err(NotFound) => false,
+            _ => true,
+        })
         .collect()
 }
 
@@ -462,12 +467,14 @@ mod tests {
             child_table: table_2.clone(),
             parent_table: table_1.clone(),
             foreign_key: "fk_one".into(),
+            foreign_key_rust_name: "fk_one".into(),
             primary_key: "id".into(),
         };
         let fk_two = ForeignKeyConstraint {
             child_table: table_3.clone(),
             parent_table: table_2.clone(),
             foreign_key: "fk_two".into(),
+            foreign_key_rust_name: "fk_two".into(),
             primary_key: "id".into(),
         };
         assert_eq!(

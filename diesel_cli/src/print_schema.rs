@@ -6,7 +6,7 @@ use serde::{Deserialize, Deserializer};
 use std::error::Error;
 use std::fmt::{self, Display, Formatter, Write};
 use std::fs::File;
-use std::io::{self, Write as IoWrite};
+use std::io::{self, Error as IoError, ErrorKind, Write as IoWrite};
 use std::path::Path;
 use std::process::Command;
 use tempfile::NamedTempFile;
@@ -39,7 +39,7 @@ pub fn run_print_schema<W: IoWrite>(
     database_url: &str,
     config: &config::PrintSchema,
     output: &mut W,
-) -> Result<(), Box<Error>> {
+) -> Result<(), Box<dyn Error>> {
     let tempfile = NamedTempFile::new()?;
     let file = tempfile.reopen()?;
     output_schema(database_url, config, file, tempfile.path())?;
@@ -51,12 +51,19 @@ pub fn run_print_schema<W: IoWrite>(
     Ok(())
 }
 
+fn simplify_patch_error(err: IoError) -> Box<dyn Error> {
+    match err.kind() {
+        ErrorKind::NotFound => "Unable to find `patch` command, is it installed?".into(),
+        _ => err.into(),
+    }
+}
+
 pub fn output_schema(
     database_url: &str,
     config: &config::PrintSchema,
     mut out: File,
     out_path: &Path,
-) -> Result<(), Box<Error>> {
+) -> Result<(), Box<dyn Error>> {
     let table_names = load_table_names(database_url, config.schema_name())?
         .into_iter()
         .filter(|t| !config.filter.should_ignore_table(t))
@@ -67,7 +74,7 @@ pub fn output_schema(
     let table_data = table_names
         .into_iter()
         .map(|t| load_table_data(database_url, t))
-        .collect::<Result<_, Box<Error>>>()?;
+        .collect::<Result<_, Box<dyn Error>>>()?;
     let definitions = TableDefinitions {
         tables: table_data,
         fk_constraints: foreign_keys,
@@ -85,7 +92,8 @@ pub fn output_schema(
         let output = Command::new("patch")
             .arg(out_path)
             .arg(patch_file)
-            .output()?;
+            .output()
+            .map_err(simplify_patch_error)?;
         if !output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -249,7 +257,7 @@ impl<'a> Display for Joinable<'a> {
         write!(
             f,
             "joinable!({} -> {} ({}));",
-            self.0.child_table.name, self.0.parent_table.name, self.0.foreign_key,
+            self.0.child_table.name, self.0.parent_table.name, self.0.foreign_key_rust_name,
         )
     }
 }

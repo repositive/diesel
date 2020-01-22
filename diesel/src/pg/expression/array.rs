@@ -1,9 +1,9 @@
-use backend::Backend;
-use expression::{
+use crate::backend::Backend;
+use crate::expression::{
     AppearsOnTable, AsExpressionList, Expression, NonAggregate, SelectableExpression,
 };
-use query_builder::{AstPass, QueryFragment};
-use sql_types;
+use crate::query_builder::{AstPass, QueryFragment};
+use crate::sql_types;
 use std::marker::PhantomData;
 
 /// An ARRAY[...] literal.
@@ -67,9 +67,9 @@ where
 impl<T, ST, DB> QueryFragment<DB> for ArrayLiteral<T, ST>
 where
     DB: Backend,
-    for<'a> (&'a T): QueryFragment<DB>,
+    for<'a> &'a T: QueryFragment<DB>,
 {
-    fn walk_ast(&self, mut out: AstPass<DB>) -> ::result::QueryResult<()> {
+    fn walk_ast(&self, mut out: AstPass<DB>) -> crate::result::QueryResult<()> {
         out.push_sql("ARRAY[");
         QueryFragment::walk_ast(&&self.elements, out.reborrow())?;
         out.push_sql("]");

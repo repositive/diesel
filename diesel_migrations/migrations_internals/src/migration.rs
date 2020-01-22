@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 #[allow(missing_debug_implementations)]
 #[derive(Clone, Copy)]
 pub struct MigrationName<'a> {
-    pub migration: &'a Migration,
+    pub migration: &'a dyn Migration,
 }
 
-pub fn name(migration: &Migration) -> MigrationName {
+pub fn name(migration: &dyn Migration) -> MigrationName {
     MigrationName { migration }
 }
 
@@ -32,11 +32,11 @@ impl<'a> fmt::Display for MigrationName<'a> {
 #[allow(missing_debug_implementations)]
 #[derive(Clone, Copy)]
 pub struct MigrationFileName<'a> {
-    pub migration: &'a Migration,
+    pub migration: &'a dyn Migration,
     pub sql_file: &'a str,
 }
 
-pub fn file_name<'a>(migration: &'a Migration, sql_file: &'a str) -> MigrationFileName<'a> {
+pub fn file_name<'a>(migration: &'a dyn Migration, sql_file: &'a str) -> MigrationFileName<'a> {
     MigrationFileName {
         migration,
         sql_file,
@@ -45,16 +45,16 @@ pub fn file_name<'a>(migration: &'a Migration, sql_file: &'a str) -> MigrationFi
 
 impl<'a> fmt::Display for MigrationFileName<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let fpath = match self.migration.file_path() {
-            None => return Err(fmt::Error),
-            Some(v) => v.join(self.sql_file),
-        };
-        f.write_str(fpath.to_str().unwrap_or("Invalid utf8 in filename"))?;
-        Ok(())
+        if let Some(path) = self.migration.file_path() {
+            let fpath = path.join(self.sql_file);
+            f.write_str(fpath.to_str().unwrap_or("Invalid utf8 in filename"))
+        } else {
+            write!(f, "{}/{}", self.migration.version(), self.sql_file)
+        }
     }
 }
 
-pub fn migration_from(path: PathBuf) -> Result<Box<Migration>, MigrationError> {
+pub fn migration_from(path: PathBuf) -> Result<Box<dyn Migration>, MigrationError> {
     #[cfg(feature = "barrel")]
     match ::barrel::integrations::diesel::migration_from(&path) {
         Some(migration) => return Ok(migration),
@@ -121,16 +121,16 @@ impl Migration for SqlFileMigration {
         &self.1
     }
 
-    fn run(&self, conn: &SimpleConnection) -> Result<(), RunMigrationsError> {
+    fn run(&self, conn: &dyn SimpleConnection) -> Result<(), RunMigrationsError> {
         run_sql_from_file(conn, &self.0.join("up.sql"))
     }
 
-    fn revert(&self, conn: &SimpleConnection) -> Result<(), RunMigrationsError> {
+    fn revert(&self, conn: &dyn SimpleConnection) -> Result<(), RunMigrationsError> {
         run_sql_from_file(conn, &self.0.join("down.sql"))
     }
 }
 
-fn run_sql_from_file(conn: &SimpleConnection, path: &Path) -> Result<(), RunMigrationsError> {
+fn run_sql_from_file(conn: &dyn SimpleConnection, path: &Path) -> Result<(), RunMigrationsError> {
     let mut sql = String::new();
     let mut file = File::open(path)?;
     file.read_to_string(&mut sql)?;
@@ -145,17 +145,17 @@ fn run_sql_from_file(conn: &SimpleConnection, path: &Path) -> Result<(), RunMigr
 
 #[cfg(test)]
 mod tests {
-    extern crate tempdir;
+    extern crate tempfile;
 
     use super::{valid_sql_migration_directory, version_from_path};
 
-    use self::tempdir::TempDir;
+    use self::tempfile::Builder;
     use std::fs;
     use std::path::PathBuf;
 
     #[test]
     fn files_are_not_valid_sql_file_migrations() {
-        let dir = TempDir::new("diesel").unwrap();
+        let dir = Builder::new().prefix("diesel").tempdir().unwrap();
         let file_path = dir.path().join("12345");
 
         fs::File::create(&file_path).unwrap();
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn directory_containing_exactly_up_sql_and_down_sql_is_valid_migration_dir() {
-        let tempdir = TempDir::new("diesel").unwrap();
+        let tempdir = Builder::new().prefix("diesel").tempdir().unwrap();
         let folder = tempdir.path().join("12345");
 
         fs::create_dir(&folder).unwrap();
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn directory_containing_unknown_files_is_valid_migration_dir() {
-        let tempdir = TempDir::new("diesel").unwrap();
+        let tempdir = Builder::new().prefix("diesel").tempdir().unwrap();
         let folder = tempdir.path().join("12345");
 
         fs::create_dir(&folder).unwrap();
@@ -190,7 +190,7 @@ mod tests {
 
     #[test]
     fn files_beginning_with_dot_are_allowed() {
-        let tempdir = TempDir::new("diesel").unwrap();
+        let tempdir = Builder::new().prefix("diesel").tempdir().unwrap();
         let folder = tempdir.path().join("12345");
 
         fs::create_dir(&folder).unwrap();
@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn empty_directory_is_not_valid_migration_dir() {
-        let tempdir = TempDir::new("diesel").unwrap();
+        let tempdir = Builder::new().prefix("diesel").tempdir().unwrap();
         let folder = tempdir.path().join("12345");
 
         fs::create_dir(&folder).unwrap();
@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn directory_with_only_up_sql_is_not_valid_migration_dir() {
-        let tempdir = TempDir::new("diesel").unwrap();
+        let tempdir = Builder::new().prefix("diesel").tempdir().unwrap();
         let folder = tempdir.path().join("12345");
 
         fs::create_dir(&folder).unwrap();

@@ -2,9 +2,9 @@
 
 use byteorder::ByteOrder;
 
-use query_builder::bind_collector::BindCollector;
-use query_builder::QueryBuilder;
-use sql_types::{self, HasSqlType};
+use crate::query_builder::bind_collector::BindCollector;
+use crate::query_builder::QueryBuilder;
+use crate::sql_types::{self, HasSqlType};
 
 /// A database backend
 ///
@@ -58,6 +58,12 @@ pub trait HasRawValue<'a> {
     /// should not be used directly. Use the [`RawValue`](type.RawValue.html)
     /// helper type instead.
     type RawValue;
+}
+
+/// A trait indicating that the provided raw value uses a binary representation internally
+pub trait BinaryRawValue<'a>: HasRawValue<'a> {
+    /// Get the underlying binary representation of the raw value
+    fn as_bytes(value: Self::RawValue) -> &'a [u8];
 }
 
 /// A helper type to get the raw representation of a database type given to

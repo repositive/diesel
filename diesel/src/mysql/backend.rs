@@ -3,9 +3,10 @@
 use byteorder::NativeEndian;
 
 use super::query_builder::MysqlQueryBuilder;
-use backend::*;
-use query_builder::bind_collector::RawBytesBindCollector;
-use sql_types::TypeMetadata;
+use super::MysqlValue;
+use crate::backend::*;
+use crate::query_builder::bind_collector::RawBytesBindCollector;
+use crate::sql_types::TypeMetadata;
 
 /// The MySQL backend
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -69,7 +70,7 @@ impl Backend for Mysql {
 }
 
 impl<'a> HasRawValue<'a> for Mysql {
-    type RawValue = &'a [u8];
+    type RawValue = MysqlValue<'a>;
 }
 
 impl TypeMetadata for Mysql {

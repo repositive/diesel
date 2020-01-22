@@ -6,7 +6,7 @@ extern crate url;
 use std::fs::{self, File};
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
-use tempdir::TempDir;
+use tempfile::{Builder, TempDir};
 
 use super::command::TestCommand;
 
@@ -40,7 +40,7 @@ impl ProjectBuilder {
     }
 
     pub fn build(self) -> Project {
-        let tempdir = TempDir::new(&self.name).unwrap();
+        let tempdir = Builder::new().prefix(&self.name).tempdir().unwrap();
 
         File::create(tempdir.path().join("Cargo.toml")).unwrap();
 
@@ -102,7 +102,7 @@ impl Project {
 
         let mut db_url =
             url::Url::parse(&env::var_os(var).unwrap().into_string().unwrap()).unwrap();
-        db_url.set_path(&format!("diesel_{}", &self.name));
+        db_url.set_path(&format!("/diesel_{}", &self.name));
         db_url
     }
 

@@ -1,5 +1,3 @@
-#![cfg_attr(rustfmt, rustfmt_skip)] // https://github.com/rust-lang-nursery/rustfmt/issues/2755
-
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __diesel_operator_body {
@@ -361,7 +359,6 @@ macro_rules! diesel_prefix_operator {
     }
 }
 
-infix_operator!(Concat, " || ", ReturnBasedOnArgs);
 infix_operator!(And, " AND ");
 infix_operator!(Between, " BETWEEN ");
 infix_operator!(Escape, " ESCAPE ");
@@ -383,9 +380,9 @@ postfix_operator!(Desc, " DESC", ());
 
 prefix_operator!(Not, "NOT ");
 
-use insertable::{ColumnInsertValue, Insertable};
-use query_builder::ValuesClause;
-use query_source::Column;
+use crate::insertable::{ColumnInsertValue, Insertable};
+use crate::query_builder::ValuesClause;
+use crate::query_source::Column;
 
 impl<T, U> Insertable<T::Table> for Eq<T, U>
 where
@@ -407,5 +404,49 @@ where
 
     fn values(self) -> Self::Values {
         Eq::new(self.left, &self.right).values()
+    }
+}
+
+#[derive(Debug, Clone, Copy, QueryId, DieselNumericOps, NonAggregate)]
+#[doc(hidden)]
+pub struct Concat<L, R> {
+    pub(crate) left: L,
+    pub(crate) right: R,
+}
+
+impl<L, R> Concat<L, R> {
+    pub fn new(left: L, right: R) -> Self {
+        Self { left, right }
+    }
+}
+
+impl<L, R, ST> crate::expression::Expression for Concat<L, R>
+where
+    L: crate::expression::Expression<SqlType = ST>,
+    R: crate::expression::Expression<SqlType = ST>,
+{
+    type SqlType = ST;
+}
+
+impl_selectable_expression!(Concat<L, R>);
+
+impl<L, R, DB> crate::query_builder::QueryFragment<DB> for Concat<L, R>
+where
+    L: crate::query_builder::QueryFragment<DB>,
+    R: crate::query_builder::QueryFragment<DB>,
+    DB: crate::backend::Backend,
+{
+    fn walk_ast(
+        &self,
+        mut out: crate::query_builder::AstPass<DB>,
+    ) -> crate::result::QueryResult<()> {
+        // Those brackets are required because mysql is broken
+        // https://github.com/diesel-rs/diesel/issues/2133#issuecomment-517432317
+        out.push_sql("(");
+        self.left.walk_ast(out.reborrow())?;
+        out.push_sql(" || ");
+        self.right.walk_ast(out.reborrow())?;
+        out.push_sql(")");
+        Ok(())
     }
 }

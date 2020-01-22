@@ -16,12 +16,12 @@ use std::convert::Into;
 use std::fmt;
 use std::marker::PhantomData;
 
-use backend::UsesAnsiSavepointSyntax;
-use connection::{AnsiTransactionManager, SimpleConnection};
-use deserialize::{Queryable, QueryableByName};
-use prelude::*;
-use query_builder::{AsQuery, QueryFragment, QueryId};
-use sql_types::HasSqlType;
+use crate::backend::UsesAnsiSavepointSyntax;
+use crate::connection::{AnsiTransactionManager, SimpleConnection};
+use crate::deserialize::{Queryable, QueryableByName};
+use crate::prelude::*;
+use crate::query_builder::{AsQuery, QueryFragment, QueryId};
+use crate::sql_types::HasSqlType;
 
 /// An r2d2 connection manager for use with Diesel.
 ///
@@ -54,7 +54,7 @@ pub enum Error {
     ConnectionError(ConnectionError),
 
     /// An error occurred pinging the database
-    QueryError(::result::Error),
+    QueryError(crate::result::Error),
 }
 
 impl fmt::Display for Error {
@@ -75,9 +75,36 @@ impl ::std::error::Error for Error {
     }
 }
 
+/// A trait indicating a connection could be used inside a r2d2 pool
+pub trait R2D2Connection: Connection {
+    /// Check if a connection is still valid
+    fn ping(&self) -> QueryResult<()>;
+}
+
+#[cfg(feature = "postgres")]
+impl R2D2Connection for crate::pg::PgConnection {
+    fn ping(&self) -> QueryResult<()> {
+        self.execute("SELECT 1").map(|_| ())
+    }
+}
+
+#[cfg(feature = "mysql")]
+impl R2D2Connection for crate::mysql::MysqlConnection {
+    fn ping(&self) -> QueryResult<()> {
+        self.execute("SELECT 1").map(|_| ())
+    }
+}
+
+#[cfg(feature = "sqlite")]
+impl R2D2Connection for crate::sqlite::SqliteConnection {
+    fn ping(&self) -> QueryResult<()> {
+        self.execute("SELECT 1").map(|_| ())
+    }
+}
+
 impl<T> ManageConnection for ConnectionManager<T>
 where
-    T: Connection + Send + 'static,
+    T: R2D2Connection + Send + 'static,
 {
     type Connection = T;
     type Error = Error;
@@ -87,9 +114,7 @@ where
     }
 
     fn is_valid(&self, conn: &mut T) -> Result<(), Error> {
-        conn.execute("SELECT 1")
-            .map(|_| ())
-            .map_err(Error::QueryError)
+        conn.ping().map_err(Error::QueryError)
     }
 
     fn has_broken(&self, _conn: &mut T) -> bool {
@@ -100,7 +125,7 @@ where
 impl<M> SimpleConnection for PooledConnection<M>
 where
     M: ManageConnection,
-    M::Connection: Connection + Send + 'static,
+    M::Connection: R2D2Connection + Send + 'static,
 {
     fn batch_execute(&self, query: &str) -> QueryResult<()> {
         (&**self).batch_execute(query)
@@ -110,7 +135,8 @@ where
 impl<M> Connection for PooledConnection<M>
 where
     M: ManageConnection,
-    M::Connection: Connection<TransactionManager = AnsiTransactionManager> + Send + 'static,
+    M::Connection:
+        Connection<TransactionManager = AnsiTransactionManager> + R2D2Connection + Send + 'static,
     <M::Connection as Connection>::Backend: UsesAnsiSavepointSyntax,
 {
     type Backend = <M::Connection as Connection>::Backend;
@@ -162,8 +188,8 @@ mod tests {
     use std::sync::Arc;
     use std::thread;
 
-    use r2d2::*;
-    use test_helpers::*;
+    use crate::r2d2::*;
+    use crate::test_helpers::*;
 
     #[test]
     fn establish_basic_connection() {
@@ -209,8 +235,8 @@ mod tests {
 
     #[test]
     fn pooled_connection_impls_connection() {
-        use select;
-        use sql_types::Text;
+        use crate::select;
+        use crate::sql_types::Text;
 
         let manager = ConnectionManager::<TestConnection>::new(database_url());
         let pool = Pool::builder()

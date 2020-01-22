@@ -138,7 +138,7 @@ where
 pub fn run_pending_migrations_in_directory<Conn>(
     conn: &Conn,
     migrations_dir: &Path,
-    output: &mut Write,
+    output: &mut dyn Write,
 ) -> Result<(), RunMigrationsError>
 where
     Conn: MigrationConnection,
@@ -152,7 +152,7 @@ where
 pub fn mark_migrations_in_directory<Conn>(
     conn: &Conn,
     migrations_dir: &Path,
-) -> Result<Vec<(Box<Migration>, bool)>, RunMigrationsError>
+) -> Result<Vec<(Box<dyn Migration>, bool)>, RunMigrationsError>
 where
     Conn: MigrationConnection,
 {
@@ -179,6 +179,16 @@ where
     Conn: MigrationConnection,
 {
     let migrations_dir = find_migrations_directory()?;
+    any_pending_migrations_in_directory(conn, &migrations_dir)
+}
+
+pub fn any_pending_migrations_in_directory<Conn>(
+    conn: &Conn,
+    migrations_dir: &Path,
+) -> Result<bool, RunMigrationsError>
+where
+    Conn: MigrationConnection,
+{
     let all_migrations = migrations_in_directory(&migrations_dir)?;
     setup_database(conn)?;
     let already_run = conn.previously_run_migration_versions()?;
@@ -223,7 +233,7 @@ pub fn revert_migration_with_version<Conn: Connection>(
     conn: &Conn,
     migrations_dir: &Path,
     ver: &str,
-    output: &mut Write,
+    output: &mut dyn Write,
 ) -> Result<(), RunMigrationsError> {
     migration_with_version(migrations_dir, ver)
         .map_err(Into::into)
@@ -235,7 +245,7 @@ pub fn run_migration_with_version<Conn>(
     conn: &Conn,
     migrations_dir: &Path,
     ver: &str,
-    output: &mut Write,
+    output: &mut dyn Write,
 ) -> Result<(), RunMigrationsError>
 where
     Conn: MigrationConnection,
@@ -248,7 +258,7 @@ where
 fn migration_with_version(
     migrations_dir: &Path,
     ver: &str,
-) -> Result<Box<Migration>, MigrationError> {
+) -> Result<Box<dyn Migration>, MigrationError> {
     let all_migrations = migrations_in_directory(migrations_dir)?;
     let migration = all_migrations.into_iter().find(|m| m.version() == ver);
     match migration {
@@ -258,17 +268,8 @@ fn migration_with_version(
 }
 
 #[doc(hidden)]
-pub fn setup_database<Conn: Connection>(conn: &Conn) -> QueryResult<usize> {
-    create_schema_migrations_table_if_needed(conn)
-}
-
-fn create_schema_migrations_table_if_needed<Conn: Connection>(conn: &Conn) -> QueryResult<usize> {
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS __diesel_schema_migrations (\
-         version VARCHAR(50) PRIMARY KEY NOT NULL,\
-         run_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP\
-         )",
-    )
+pub fn setup_database<Conn: MigrationConnection>(conn: &Conn) -> QueryResult<usize> {
+    conn.setup()
 }
 
 #[doc(hidden)]
@@ -288,7 +289,7 @@ pub fn migration_paths_in_directory(path: &Path) -> Result<Vec<DirEntry>, Migrat
         .collect()
 }
 
-fn migrations_in_directory(path: &Path) -> Result<Vec<Box<Migration>>, MigrationError> {
+fn migrations_in_directory(path: &Path) -> Result<Vec<Box<dyn Migration>>, MigrationError> {
     migration_paths_in_directory(path)?
         .iter()
         .map(|e| migration_from(e.path()))
@@ -300,7 +301,7 @@ fn migrations_in_directory(path: &Path) -> Result<Vec<Box<Migration>>, Migration
 pub fn run_migrations<Conn, List>(
     conn: &Conn,
     migrations: List,
-    output: &mut Write,
+    output: &mut dyn Write,
 ) -> Result<(), RunMigrationsError>
 where
     Conn: MigrationConnection,
@@ -323,8 +324,8 @@ where
 
 fn run_migration<Conn>(
     conn: &Conn,
-    migration: &Migration,
-    output: &mut Write,
+    migration: &dyn Migration,
+    output: &mut dyn Write,
 ) -> Result<(), RunMigrationsError>
 where
     Conn: MigrationConnection,
@@ -348,8 +349,8 @@ where
 
 fn revert_migration<Conn: Connection>(
     conn: &Conn,
-    migration: &Migration,
-    output: &mut Write,
+    migration: &dyn Migration,
+    output: &mut dyn Write,
 ) -> Result<(), RunMigrationsError> {
     conn.transaction(|| {
         writeln!(output, "Rolling back migration {}", name(&migration))?;
@@ -390,16 +391,16 @@ pub fn search_for_migrations_directory(path: &Path) -> Result<PathBuf, Migration
 
 #[cfg(test)]
 mod tests {
-    extern crate tempdir;
+    extern crate tempfile;
 
     use super::*;
 
-    use self::tempdir::TempDir;
+    use self::tempfile::Builder;
     use std::fs;
 
     #[test]
     fn migration_directory_not_found_if_no_migration_dir_exists() {
-        let dir = TempDir::new("diesel").unwrap();
+        let dir = Builder::new().prefix("diesel").tempdir().unwrap();
 
         assert_eq!(
             Err(MigrationError::MigrationDirectoryNotFound),
@@ -409,7 +410,7 @@ mod tests {
 
     #[test]
     fn migration_directory_defaults_to_pwd_slash_migrations() {
-        let dir = TempDir::new("diesel").unwrap();
+        let dir = Builder::new().prefix("diesel").tempdir().unwrap();
         let temp_path = dir.path().canonicalize().unwrap();
         let migrations_path = temp_path.join("migrations");
 
@@ -423,7 +424,7 @@ mod tests {
 
     #[test]
     fn migration_directory_checks_parents() {
-        let dir = TempDir::new("diesel").unwrap();
+        let dir = Builder::new().prefix("diesel").tempdir().unwrap();
         let temp_path = dir.path().canonicalize().unwrap();
         let migrations_path = temp_path.join("migrations");
         let child_path = temp_path.join("child");

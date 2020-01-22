@@ -1,10 +1,11 @@
+extern crate percent_encoding;
 extern crate url;
 
-use self::url::percent_encoding::percent_decode;
+use self::percent_encoding::percent_decode;
 use self::url::{Host, Url};
 use std::ffi::{CStr, CString};
 
-use result::{ConnectionError, ConnectionResult};
+use crate::result::{ConnectionError, ConnectionResult};
 
 pub struct ConnectionOptions {
     host: Option<CString>,
@@ -128,7 +129,27 @@ fn first_path_segment_is_treated_as_database() {
 
 #[test]
 fn userinfo_should_be_percent_decode() {
-    use self::url::percent_encoding::{utf8_percent_encode, USERINFO_ENCODE_SET};
+    use self::percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
+    const USERINFO_ENCODE_SET: &AsciiSet = &CONTROLS
+        .add(b' ')
+        .add(b'"')
+        .add(b'<')
+        .add(b'>')
+        .add(b'`')
+        .add(b'#')
+        .add(b'?')
+        .add(b'{')
+        .add(b'}')
+        .add(b'/')
+        .add(b':')
+        .add(b';')
+        .add(b'=')
+        .add(b'@')
+        .add(b'[')
+        .add(b'\\')
+        .add(b']')
+        .add(b'^')
+        .add(b'|');
 
     let username = "x#gfuL?4Zuj{n73m}eeJt0";
     let encoded_username = utf8_percent_encode(username, USERINFO_ENCODE_SET);

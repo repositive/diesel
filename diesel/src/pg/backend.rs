@@ -3,11 +3,11 @@
 use byteorder::NetworkEndian;
 
 use super::query_builder::PgQueryBuilder;
-use super::PgMetadataLookup;
-use backend::*;
-use deserialize::Queryable;
-use query_builder::bind_collector::RawBytesBindCollector;
-use sql_types::{Oid, TypeMetadata};
+use super::{PgMetadataLookup, PgValue};
+use crate::backend::*;
+use crate::deserialize::Queryable;
+use crate::query_builder::bind_collector::RawBytesBindCollector;
+use crate::sql_types::{Oid, TypeMetadata};
 
 /// The PostgreSQL backend
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -43,7 +43,7 @@ impl Backend for Pg {
 }
 
 impl<'a> HasRawValue<'a> for Pg {
-    type RawValue = &'a [u8];
+    type RawValue = PgValue<'a>;
 }
 
 impl TypeMetadata for Pg {

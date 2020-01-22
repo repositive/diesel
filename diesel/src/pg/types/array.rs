@@ -2,10 +2,10 @@ use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use std::fmt;
 use std::io::Write;
 
-use deserialize::{self, FromSql};
-use pg::{Pg, PgMetadataLookup, PgTypeMetadata};
-use serialize::{self, IsNull, Output, ToSql};
-use sql_types::{Array, HasSqlType, Nullable};
+use crate::deserialize::{self, FromSql};
+use crate::pg::{Pg, PgMetadataLookup, PgTypeMetadata, PgValue};
+use crate::serialize::{self, IsNull, Output, ToSql};
+use crate::sql_types::{Array, HasSqlType, Nullable};
 
 impl<T> HasSqlType<Array<T>> for Pg
 where
@@ -23,8 +23,9 @@ impl<T, ST> FromSql<Array<ST>, Pg> for Vec<T>
 where
     T: FromSql<ST, Pg>,
 {
-    fn from_sql(bytes: Option<&[u8]>) -> deserialize::Result<Self> {
-        let mut bytes = not_none!(bytes);
+    fn from_sql(value: Option<PgValue<'_>>) -> deserialize::Result<Self> {
+        let value = not_none!(value);
+        let mut bytes = value.as_bytes();
         let num_dimensions = bytes.read_i32::<NetworkEndian>()?;
         let has_null = bytes.read_i32::<NetworkEndian>()? != 0;
         let _oid = bytes.read_i32::<NetworkEndian>()?;
@@ -48,15 +49,15 @@ where
                 } else {
                     let (elem_bytes, new_bytes) = bytes.split_at(elem_size as usize);
                     bytes = new_bytes;
-                    T::from_sql(Some(elem_bytes))
+                    T::from_sql(Some(PgValue::new(elem_bytes, value.get_oid())))
                 }
             })
             .collect()
     }
 }
 
-use expression::bound::Bound;
-use expression::AsExpression;
+use crate::expression::bound::Bound;
+use crate::expression::AsExpression;
 
 macro_rules! array_as_expression {
     ($ty:ty, $sql_type:ty) => {

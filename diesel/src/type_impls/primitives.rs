@@ -1,10 +1,12 @@
 use std::error::Error;
 use std::io::Write;
 
-use backend::{self, Backend, HasRawValue};
-use deserialize::{self, FromSql, FromSqlRow, Queryable};
-use serialize::{self, IsNull, Output, ToSql};
-use sql_types::{self, BigInt, Binary, Bool, Double, Float, Integer, NotNull, SmallInt, Text};
+use crate::backend::{self, Backend, BinaryRawValue};
+use crate::deserialize::{self, FromSql, FromSqlRow, Queryable};
+use crate::serialize::{self, IsNull, Output, ToSql};
+use crate::sql_types::{
+    self, BigInt, Binary, Bool, Double, Float, Integer, NotNull, SmallInt, Text,
+};
 
 #[allow(dead_code)]
 mod foreign_impls {
@@ -17,7 +19,7 @@ mod foreign_impls {
 
     #[derive(FromSqlRow, AsExpression)]
     #[diesel(foreign_derive)]
-    #[cfg_attr(feature = "mysql", sql_type = "::sql_types::TinyInt")]
+    #[cfg_attr(feature = "mysql", sql_type = "crate::sql_types::TinyInt")]
     struct I8Proxy(i8);
 
     #[derive(FromSqlRow, AsExpression)]
@@ -39,24 +41,24 @@ mod foreign_impls {
     #[diesel(foreign_derive)]
     #[cfg_attr(
         feature = "mysql",
-        sql_type = "::sql_types::Unsigned<::sql_types::TinyInt>"
+        sql_type = "crate::sql_types::Unsigned<crate::sql_types::TinyInt>"
     )]
     struct U8Proxy(u8);
 
     #[derive(FromSqlRow, AsExpression)]
     #[diesel(foreign_derive)]
-    #[cfg_attr(feature = "mysql", sql_type = "::sql_types::Unsigned<SmallInt>")]
+    #[cfg_attr(feature = "mysql", sql_type = "crate::sql_types::Unsigned<SmallInt>")]
     struct U16Proxy(u16);
 
     #[derive(FromSqlRow, AsExpression)]
     #[diesel(foreign_derive)]
-    #[cfg_attr(feature = "mysql", sql_type = "::sql_types::Unsigned<Integer>")]
-    #[cfg_attr(feature = "postgres", sql_type = "::sql_types::Oid")]
+    #[cfg_attr(feature = "mysql", sql_type = "crate::sql_types::Unsigned<Integer>")]
+    #[cfg_attr(feature = "postgres", sql_type = "crate::sql_types::Oid")]
     struct U32Proxy(u32);
 
     #[derive(FromSqlRow, AsExpression)]
     #[diesel(foreign_derive)]
-    #[cfg_attr(feature = "mysql", sql_type = "::sql_types::Unsigned<BigInt>")]
+    #[cfg_attr(feature = "mysql", sql_type = "crate::sql_types::Unsigned<BigInt>")]
     struct U64Proxy(u64);
 
     #[derive(FromSqlRow, AsExpression)]
@@ -72,17 +74,17 @@ mod foreign_impls {
     #[derive(FromSqlRow, AsExpression)]
     #[diesel(foreign_derive)]
     #[sql_type = "Text"]
-    #[cfg_attr(feature = "sqlite", sql_type = "::sql_types::Date")]
-    #[cfg_attr(feature = "sqlite", sql_type = "::sql_types::Time")]
-    #[cfg_attr(feature = "sqlite", sql_type = "::sql_types::Timestamp")]
+    #[cfg_attr(feature = "sqlite", sql_type = "crate::sql_types::Date")]
+    #[cfg_attr(feature = "sqlite", sql_type = "crate::sql_types::Time")]
+    #[cfg_attr(feature = "sqlite", sql_type = "crate::sql_types::Timestamp")]
     struct StringProxy(String);
 
     #[derive(AsExpression)]
     #[diesel(foreign_derive, not_sized)]
     #[sql_type = "Text"]
-    #[cfg_attr(feature = "sqlite", sql_type = "::sql_types::Date")]
-    #[cfg_attr(feature = "sqlite", sql_type = "::sql_types::Time")]
-    #[cfg_attr(feature = "sqlite", sql_type = "::sql_types::Timestamp")]
+    #[cfg_attr(feature = "sqlite", sql_type = "crate::sql_types::Date")]
+    #[cfg_attr(feature = "sqlite", sql_type = "crate::sql_types::Time")]
+    #[cfg_attr(feature = "sqlite", sql_type = "crate::sql_types::Timestamp")]
     struct StrProxy(str);
 
     #[derive(FromSqlRow)]
@@ -120,13 +122,28 @@ where
 /// impl in terms of `String`, but don't want to allocate. We have to return a
 /// raw pointer instead of a reference with a lifetime due to the structure of
 /// `FromSql`
+#[cfg(not(feature = "unstable"))]
 impl<DB> FromSql<sql_types::Text, DB> for *const str
 where
-    DB: Backend + for<'a> HasRawValue<'a, RawValue = &'a [u8]>,
+    DB: Backend + for<'a> BinaryRawValue<'a>,
 {
-    fn from_sql(bytes: Option<backend::RawValue<DB>>) -> deserialize::Result<Self> {
+    fn from_sql(value: Option<crate::backend::RawValue<DB>>) -> deserialize::Result<Self> {
         use std::str;
-        let string = str::from_utf8(not_none!(bytes))?;
+        let value = not_none!(value);
+        let string = str::from_utf8(DB::as_bytes(value))?;
+        Ok(string as *const _)
+    }
+}
+
+#[cfg(feature = "unstable")]
+impl<DB> FromSql<sql_types::Text, DB> for *const str
+where
+    DB: Backend + for<'a> BinaryRawValue<'a>,
+{
+    default fn from_sql(value: Option<crate::backend::RawValue<DB>>) -> deserialize::Result<Self> {
+        use std::str;
+        let value = not_none!(value);
+        let string = str::from_utf8(DB::as_bytes(value))?;
         Ok(string as *const _)
     }
 }
@@ -135,7 +152,7 @@ impl<DB: Backend> ToSql<sql_types::Text, DB> for str {
     fn to_sql<W: Write>(&self, out: &mut Output<W, DB>) -> serialize::Result {
         out.write_all(self.as_bytes())
             .map(|_| IsNull::No)
-            .map_err(|e| Box::new(e) as Box<Error + Send + Sync>)
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 }
 
@@ -169,10 +186,10 @@ where
 /// `FromSql`
 impl<DB> FromSql<sql_types::Binary, DB> for *const [u8]
 where
-    DB: Backend + for<'a> HasRawValue<'a, RawValue = &'a [u8]>,
+    DB: Backend + for<'a> BinaryRawValue<'a>,
 {
     fn from_sql(bytes: Option<backend::RawValue<DB>>) -> deserialize::Result<Self> {
-        Ok(not_none!(bytes) as *const _)
+        Ok(DB::as_bytes(not_none!(bytes)) as *const _)
     }
 }
 
@@ -190,7 +207,7 @@ impl<DB: Backend> ToSql<sql_types::Binary, DB> for [u8] {
     fn to_sql<W: Write>(&self, out: &mut Output<W, DB>) -> serialize::Result {
         out.write_all(self)
             .map(|_| IsNull::No)
-            .map_err(|e| Box::new(e) as Box<Error + Send + Sync>)
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 }
 
@@ -224,7 +241,7 @@ where
     DB: Backend,
     Cow<'a, T>: FromSql<ST, DB>,
 {
-    fn build_from_row<R: ::row::Row<DB>>(row: &mut R) -> deserialize::Result<Self> {
+    fn build_from_row<R: crate::row::Row<DB>>(row: &mut R) -> deserialize::Result<Self> {
         FromSql::<ST, DB>::from_sql(row.take())
     }
 }
@@ -242,8 +259,8 @@ where
     }
 }
 
-use expression::bound::Bound;
-use expression::{AsExpression, Expression};
+use crate::expression::bound::Bound;
+use crate::expression::{AsExpression, Expression};
 
 impl<'a, T: ?Sized, ST> AsExpression<ST> for Cow<'a, T>
 where

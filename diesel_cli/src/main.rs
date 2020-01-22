@@ -48,12 +48,14 @@ use clap::{ArgMatches, Shell};
 use migrations_internals::{self as migrations, MigrationConnection};
 use std::any::Any;
 use std::error::Error;
+use std::fmt::Display;
 use std::io::stdout;
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
 use self::config::Config;
 use self::database_error::{DatabaseError, DatabaseResult};
+use migrations::MigrationError;
 use migrations_internals::TIMESTAMP_FORMAT;
 
 fn main() {
@@ -75,11 +77,11 @@ fn main() {
 
 // https://github.com/rust-lang-nursery/rust-clippy/issues/2927#issuecomment-405705595
 #[allow(clippy::similar_names)]
-fn run_migration_command(matches: &ArgMatches) -> Result<(), Box<Error>> {
+fn run_migration_command(matches: &ArgMatches) -> Result<(), Box<dyn Error>> {
     match matches.subcommand() {
         ("run", Some(_)) => {
             let database_url = database::database_url(matches);
-            let dir = migrations_dir(matches);
+            let dir = migrations_dir(matches).unwrap_or_else(handle_error);
             call_with_conn!(
                 database_url,
                 migrations::run_pending_migrations_in_directory(&dir, &mut stdout())
@@ -88,7 +90,7 @@ fn run_migration_command(matches: &ArgMatches) -> Result<(), Box<Error>> {
         }
         ("revert", Some(_)) => {
             let database_url = database::database_url(matches);
-            let dir = migrations_dir(matches);
+            let dir = migrations_dir(matches).unwrap_or_else(handle_error);
             call_with_conn!(
                 database_url,
                 migrations::revert_latest_migration_in_directory(&dir)
@@ -97,13 +99,13 @@ fn run_migration_command(matches: &ArgMatches) -> Result<(), Box<Error>> {
         }
         ("redo", Some(_)) => {
             let database_url = database::database_url(matches);
-            let dir = migrations_dir(matches);
+            let dir = migrations_dir(matches).unwrap_or_else(handle_error);
             call_with_conn!(database_url, redo_latest_migration(&dir));
             regenerate_schema_if_file_specified(matches)?;
         }
         ("list", Some(_)) => {
             let database_url = database::database_url(matches);
-            let dir = migrations_dir(matches);
+            let dir = migrations_dir(matches).unwrap_or_else(handle_error);
             let mut migrations =
                 call_with_conn!(database_url, migrations::mark_migrations_in_directory(&dir))?;
 
@@ -123,14 +125,20 @@ fn run_migration_command(matches: &ArgMatches) -> Result<(), Box<Error>> {
         }
         ("pending", Some(_)) => {
             let database_url = database::database_url(matches);
-            let result = call_with_conn!(database_url, migrations::any_pending_migrations)?;
+            let dir = migrations_dir(matches).unwrap_or_else(handle_error);
+            let result = call_with_conn!(
+                database_url,
+                migrations::any_pending_migrations_in_directory(&dir)
+            )?;
             println!("{:?}", result);
         }
         ("generate", Some(args)) => {
             let migration_name = args.value_of("MIGRATION_NAME").unwrap();
             let version = migration_version(args);
             let versioned_name = format!("{}_{}", version, migration_name);
-            let migration_dir = migrations_dir(matches).join(versioned_name);
+            let migration_dir = migrations_dir(matches)
+                .unwrap_or_else(handle_error)
+                .join(versioned_name);
             fs::create_dir(&migration_dir).unwrap();
 
             match args.value_of("MIGRATION_FORMAT") {
@@ -171,11 +179,10 @@ fn generate_sql_migration(path: &PathBuf) {
         .unwrap();
 }
 
-use std::fmt::Display;
-fn migration_version<'a>(matches: &'a ArgMatches) -> Box<Display + 'a> {
+fn migration_version<'a>(matches: &'a ArgMatches) -> Box<dyn Display + 'a> {
     matches
         .value_of("MIGRATION_VERSION")
-        .map(|s| Box::new(s) as Box<Display>)
+        .map(|s| Box::new(s) as Box<dyn Display>)
         .unwrap_or_else(|| Box::new(Utc::now().format(TIMESTAMP_FORMAT)))
 }
 
@@ -191,29 +198,51 @@ fn migrations_dir_from_cli(matches: &ArgMatches) -> Option<PathBuf> {
         })
 }
 
-fn migrations_dir(matches: &ArgMatches) -> PathBuf {
-    migrations_dir_from_cli(matches)
+/// Checks for a migrations folder in the following order :
+/// 1. From the CLI arguments
+/// 2. From the MIGRATION_DIRECTORY environment variable
+/// 3. From `diesel.toml` in the `migrations_directory` section
+///
+/// Else try to find the migrations directory with the
+/// `find_migrations_directory` in the diesel_migrations crate.
+///
+/// Returns a `MigrationError::MigrationDirectoryNotFound` if
+/// no path to the migration directory is found.
+fn migrations_dir(matches: &ArgMatches) -> Result<PathBuf, MigrationError> {
+    let migrations_dir = migrations_dir_from_cli(matches)
         .or_else(|| env::var("MIGRATION_DIRECTORY").map(PathBuf::from).ok())
-        .unwrap_or_else(|| migrations::find_migrations_directory().unwrap_or_else(handle_error))
+        .or_else(|| {
+            Some(
+                Config::read(matches)
+                    .unwrap_or_else(handle_error)
+                    .migrations_directory?
+                    .dir
+                    .to_owned(),
+            )
+        });
+
+    match migrations_dir {
+        Some(dir) => Ok(dir),
+        None => migrations::find_migrations_directory(),
+    }
 }
 
 fn run_setup_command(matches: &ArgMatches) {
-    let migrations_dir = create_migrations_dir(matches).unwrap_or_else(handle_error);
     create_config_file(matches).unwrap_or_else(handle_error);
+    let migrations_dir = create_migrations_dir(matches).unwrap_or_else(handle_error);
 
     database::setup_database(matches, &migrations_dir).unwrap_or_else(handle_error);
 }
 
+/// Checks if the migration directory exists, else creates it.
+/// For more information see the `migrations_dir` function.
 fn create_migrations_dir(matches: &ArgMatches) -> DatabaseResult<PathBuf> {
-    let dir = matches
-        .value_of("MIGRATION_DIRECTORY")
-        .map(PathBuf::from)
-        .or_else(|| env::var("MIGRATION_DIRECTORY").map(PathBuf::from).ok())
-        .unwrap_or_else(|| {
-            find_project_root()
-                .unwrap_or_else(handle_error)
-                .join("migrations")
-        });
+    let dir = match migrations_dir(matches) {
+        Ok(dir) => dir,
+        Err(_) => find_project_root()
+            .unwrap_or_else(handle_error)
+            .join("migrations"),
+    };
 
     if !dir.exists() {
         create_migrations_directory(&dir)?;
@@ -233,14 +262,14 @@ fn create_config_file(matches: &ArgMatches) -> DatabaseResult<()> {
     Ok(())
 }
 
-fn run_database_command(matches: &ArgMatches) -> Result<(), Box<Error>> {
+fn run_database_command(matches: &ArgMatches) -> Result<(), Box<dyn Error>> {
     match matches.subcommand() {
         ("setup", Some(args)) => {
-            let migrations_dir = migrations_dir(args);
+            let migrations_dir = migrations_dir(args).unwrap_or_else(handle_error);
             database::setup_database(args, &migrations_dir)?;
         }
         ("reset", Some(args)) => {
-            let migrations_dir = migrations_dir(args);
+            let migrations_dir = migrations_dir(args).unwrap_or_else(handle_error);
             database::reset_database(args, &migrations_dir)?;
             regenerate_schema_if_file_specified(matches)?;
         }
@@ -317,12 +346,12 @@ where
 }
 
 #[cfg(feature = "mysql")]
-fn should_redo_migration_in_transaction(t: &Any) -> bool {
+fn should_redo_migration_in_transaction(t: &dyn Any) -> bool {
     !t.is::<::diesel::mysql::MysqlConnection>()
 }
 
 #[cfg(not(feature = "mysql"))]
-fn should_redo_migration_in_transaction(_t: &Any) -> bool {
+fn should_redo_migration_in_transaction(_t: &dyn Any) -> bool {
     true
 }
 
@@ -348,7 +377,7 @@ fn convert_absolute_path_to_relative(target_path: &Path, mut current_path: &Path
     result.join(target_path.strip_prefix(current_path).unwrap())
 }
 
-fn run_infer_schema(matches: &ArgMatches) -> Result<(), Box<Error>> {
+fn run_infer_schema(matches: &ArgMatches) -> Result<(), Box<dyn Error>> {
     use infer_schema_internals::TableName;
     use print_schema::*;
 
@@ -402,7 +431,7 @@ fn run_infer_schema(matches: &ArgMatches) -> Result<(), Box<Error>> {
     Ok(())
 }
 
-fn regenerate_schema_if_file_specified(matches: &ArgMatches) -> Result<(), Box<Error>> {
+fn regenerate_schema_if_file_specified(matches: &ArgMatches) -> Result<(), Box<dyn Error>> {
     use std::io::Read;
 
     let config = Config::read(matches)?;
@@ -439,11 +468,11 @@ fn regenerate_schema_if_file_specified(matches: &ArgMatches) -> Result<(), Box<E
 
 #[cfg(test)]
 mod tests {
-    extern crate tempdir;
+    extern crate tempfile;
 
     use database_error::DatabaseError;
 
-    use self::tempdir::TempDir;
+    use self::tempfile::Builder;
 
     use std::fs;
     use std::path::PathBuf;
@@ -453,7 +482,7 @@ mod tests {
 
     #[test]
     fn toml_directory_find_cargo_toml() {
-        let dir = TempDir::new("diesel").unwrap();
+        let dir = Builder::new().prefix("diesel").tempdir().unwrap();
         let temp_path = dir.path().canonicalize().unwrap();
         let toml_path = temp_path.join("Cargo.toml");
 
@@ -467,7 +496,7 @@ mod tests {
 
     #[test]
     fn cargo_toml_not_found_if_no_cargo_toml() {
-        let dir = TempDir::new("diesel").unwrap();
+        let dir = Builder::new().prefix("diesel").tempdir().unwrap();
         let temp_path = dir.path().canonicalize().unwrap();
 
         assert_eq!(

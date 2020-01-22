@@ -1,10 +1,10 @@
 use std::io::Write;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use deserialize::{self, FromSql};
-use pg::Pg;
-use serialize::{self, Output, ToSql};
-use sql_types;
+use crate::deserialize::{self, FromSql};
+use crate::pg::{Pg, PgValue};
+use crate::serialize::{self, Output, ToSql};
+use crate::sql_types;
 
 fn pg_epoch() -> SystemTime {
     let thirty_years = Duration::from_secs(946_684_800);
@@ -27,7 +27,7 @@ impl ToSql<sql_types::Timestamp, Pg> for SystemTime {
 }
 
 impl FromSql<sql_types::Timestamp, Pg> for SystemTime {
-    fn from_sql(bytes: Option<&[u8]>) -> deserialize::Result<Self> {
+    fn from_sql(bytes: Option<PgValue<'_>>) -> deserialize::Result<Self> {
         let usecs_passed = <i64 as FromSql<sql_types::BigInt, Pg>>::from_sql(bytes)?;
         let before_epoch = usecs_passed < 0;
         let time_passed = usecs_to_duration(usecs_passed.abs() as u64);
@@ -64,10 +64,10 @@ mod tests {
     use self::dotenv::dotenv;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-    use dsl::{now, sql};
-    use prelude::*;
-    use select;
-    use sql_types::Timestamp;
+    use crate::dsl::{now, sql};
+    use crate::prelude::*;
+    use crate::select;
+    use crate::sql_types::Timestamp;
 
     fn connection() -> PgConnection {
         dotenv().ok();

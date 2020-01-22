@@ -1,13 +1,13 @@
 use std::marker::PhantomData;
 
-use backend::Backend;
-use connection::Connection;
-use deserialize::QueryableByName;
-use query_builder::{AstPass, QueryFragment, QueryId};
-use query_dsl::{LoadQuery, RunQueryDsl};
-use result::QueryResult;
-use serialize::ToSql;
-use sql_types::HasSqlType;
+use crate::backend::Backend;
+use crate::connection::Connection;
+use crate::deserialize::QueryableByName;
+use crate::query_builder::{AstPass, QueryFragment, QueryId};
+use crate::query_dsl::{LoadQuery, RunQueryDsl};
+use crate::result::QueryResult;
+use crate::serialize::ToSql;
+use crate::sql_types::HasSqlType;
 
 #[derive(Debug, Clone)]
 #[must_use = "Queries are only executed when calling `load`, `get_result` or similar."]
@@ -195,7 +195,7 @@ impl<Conn, Query, Value, ST> RunQueryDsl<Conn> for UncheckedBind<Query, Value, S
 #[must_use = "Queries are only executed when calling `load`, `get_result`, or similar."]
 /// See [`SqlQuery::into_boxed`].
 ///
-/// [`SqlQuery::into_boxed`]: ../struct.SqlQuery.html#method.into_boxed
+/// [`SqlQuery::into_boxed`]: ./struct.SqlQuery.html#method.into_boxed
 #[allow(missing_debug_implementations)]
 pub struct BoxedSqlQuery<'f, DB: Backend, Query> {
     query: Query,
@@ -214,7 +214,7 @@ impl<'f, DB: Backend, Query> BoxedSqlQuery<'f, DB, Query> {
 
     /// See [`SqlQuery::bind`].
     ///
-    /// [`SqlQuery::bind`]: ../struct.SqlQuery.html#method.bind
+    /// [`SqlQuery::bind`]: ./struct.SqlQuery.html#method.bind
     pub fn bind<BindSt, Value>(mut self, b: Value) -> Self
     where
         DB: HasSqlType<BindSt>,
@@ -227,7 +227,7 @@ impl<'f, DB: Backend, Query> BoxedSqlQuery<'f, DB, Query> {
 
     /// See [`SqlQuery::sql`].
     ///
-    /// [`SqlQuery::sql`]: ../struct.SqlQuery.html#method.sql
+    /// [`SqlQuery::sql`]: ./struct.SqlQuery.html#method.sql
     pub fn sql<T: AsRef<str>>(mut self, sql: T) -> Self {
         self.sql += sql.as_ref();
         self
