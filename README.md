@@ -1,7 +1,12 @@
+# Notice
+
+**This fork is maintained purely to fix build issues with conflicting versions of the UUID crate for `repositive/cmp-platform`. These issues are due to Diesel's use of UUID v0.7 and `postgres`' use of v0.8. When these version issues are resolved, `repositive/cmp-platform` should point to the normal crates, and this repository should be deleted.**
+
+---
+
 [![](https://diesel.rs/assets/images/diesel_logo_stacked_black.png)](https://diesel.rs)
 
-A safe, extensible ORM and Query Builder for Rust
-==========================================================
+# A safe, extensible ORM and Query Builder for Rust
 
 [![Build Status](https://travis-ci.org/diesel-rs/diesel.svg)](https://travis-ci.org/diesel-rs/diesel)
 [![Azure Pipeline Build Status](https://dev.azure.com/diesel-rs/diesel/_apis/build/status/diesel-rs.diesel)](https://dev.azure.com/diesel-rs/diesel/_build/latest?definitionId=1)
@@ -25,6 +30,7 @@ Find our extensive Getting Started tutorial at
 Guides on more specific features are coming soon.
 
 ## Getting help
+
 If you run into problems, Diesel has a very active Gitter room.
 You can come ask for help at
 [gitter.im/diesel-rs/diesel](https://gitter.im/diesel-rs/diesel).
@@ -40,10 +46,10 @@ this GitHub repository, must follow our [code of conduct](https://github.com/die
 
 Licensed under either of these:
 
- * Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
-   https://www.apache.org/licenses/LICENSE-2.0)
- * MIT license ([LICENSE-MIT](LICENSE-MIT) or
-   https://opensource.org/licenses/MIT)
+- Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or
+  https://www.apache.org/licenses/LICENSE-2.0)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or
+  https://opensource.org/licenses/MIT)
 
 ### Contributing
 
