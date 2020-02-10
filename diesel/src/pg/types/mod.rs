@@ -20,6 +20,8 @@ mod record;
 mod uuid;
 #[cfg(feature = "uuidv07")]
 mod uuid_v0_7;
+#[cfg(feature = "uuidv08")]
+mod uuid_v0_8;
 
 /// PostgreSQL specific SQL types
 ///
